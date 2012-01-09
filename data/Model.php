@@ -12,6 +12,7 @@ use lithium\util\Set;
 use lithium\util\Inflector;
 use lithium\core\ConfigException;
 use BadMethodCallException;
+use lithium\data\collection\RecordSet;
 use lithium\data\source\Database;
 
 /**
@@ -472,18 +473,14 @@ class Model extends \lithium\core\StaticObject {
 			if ($is_database && $result->count()) {
 				foreach ($withs as $with) {
 					$relationship = $self::relations($with);
-					// right now only belongsTo is supported.
-					if ($relationship->data('type') !== 'belongsTo') {
-						continue;
-					}
 
-					$fieldname = $relationship->data('fieldName');
 					$model = $relationship->data('to');
+					$fieldName = $relationship->data('fieldName');
 					$key = $relationship->data('key');
-
 					$from = key($key);
 					$to = $key[$from];
 
+					// collectioning the identifiers to be loaded
 					$ids = array();
 					foreach ($result as $res) {
 						$ids[] = $res->$from;
@@ -491,11 +488,43 @@ class Model extends \lithium\core\StaticObject {
 					$ids = array_unique($ids);
 
 					$items = $model::find('all', array('conditions' => array(
-						'id' => $ids
+						$to => $ids
 					)));
 
-					foreach ($result as $res) {
-						$res->$fieldname = $items[$res->$from];
+					switch ($relationship->data('type')) {
+						case 'belongsTo':
+							foreach ($result as $res) {
+								$id = $res->$from;
+								if (isset($items[$id])) {
+									$res->$fieldName = $items[$id];
+								} else {
+									$res->$fieldName = null;
+								}
+							}
+							break;
+						case 'hasMany':
+							$items_by_id = array();
+							foreach($items as $item) {
+								$id = $item->$to;
+								if (!isset($items_by_id)) {
+									$items_by_id = array();
+								}
+								$items_by_id[$id] = array($item->$from => $item);
+							}
+							foreach ($items_by_id as $id => $items) {
+								$result[$id]->$fieldName = new RecordSet(array(
+									'data' => $items
+								));
+							}
+							// default value is an empty recordset
+							foreach ($result as $res) {
+								if (!isset($res->$fieldName)) {
+									$res->$fieldName = new RecordSet();
+								}
+							}
+							break;
+						default:
+							throw new \Exception('relationship type not supported!');
 					}
 				}
 			}
