@@ -12,6 +12,7 @@ use lithium\util\Set;
 use lithium\util\Inflector;
 use lithium\core\ConfigException;
 use BadMethodCallException;
+use lithium\data\source\Database;
 
 /**
  * The `Model` class is the starting point for the domain logic of your application.
@@ -455,8 +456,50 @@ class Model extends \lithium\core\StaticObject {
 
 		$filter = function($self, $params) use ($meta) {
 			$options = $params['options'] + array('type' => 'read', 'model' => $meta['name']);
+
+			// Breaking the current piggybacking
+			$is_database = $self::connection() instanceof Database;
+			if ($is_database) {
+				$withs = (array) $options['with'];
+				unset($options['with']);
+			}
+
 			$query = $self::invokeMethod('_instance', array('query', $options));
-			return $self::connection()->read($query, $options);
+			$result = $self::connection()->read($query, $options);
+
+			// Redoing it and throwing the lazy loading out of the window at
+			// the same time.
+			if ($is_database && $result->count()) {
+				foreach ($withs as $with) {
+					$relationship = $self::relations($with);
+					// right now only belongsTo is supported.
+					if ($relationship->data('type') !== 'belongsTo') {
+						continue;
+					}
+
+					$fieldname = $relationship->data('fieldName');
+					$model = $relationship->data('to');
+					$key = $relationship->data('key');
+
+					$from = key($key);
+					$to = $key[$from];
+
+					$ids = array();
+					foreach ($result as $res) {
+						$ids[] = $res->$from;
+					}
+					$ids = array_unique($ids);
+
+					$items = $model::find('all', array('conditions' => array(
+						'id' => $ids
+					)));
+
+					foreach ($result as $res) {
+						$res->$fieldname = $items[$res->$from];
+					}
+				}
+			}
+			return $result;
 		};
 		if (is_string($type) && isset($self->_finders[$type])) {
 			$finder = is_callable($self->_finders[$type]) ? array($self->_finders[$type]) : array();

@@ -268,7 +268,8 @@ abstract class Database extends \lithium\data\Source {
 				$sql = String::insert($query, $self->value($args));
 			} else {
 				$limit = $query->limit();
-				if ($model && $limit && !isset($args['subquery']) && $model::relations('hasMany')) {
+				// commented this since it creates strange queries… —greut
+				if ($model && $limit && !isset($args['subquery'])/* && $model::relations('hasMany')*/) {
 					$name = $model::meta('name');
 					$key = $model::key();
 

@@ -102,7 +102,12 @@ class RecordSet extends \lithium\data\Collection {
 
 		while ($record = $this->_populate(null, $offset)) {
 			$key = $model::key($record);
-			$keySet = $offset == $key || (!$key && in_array($offset, $this->_index));
+			// this doesn't work with mysql
+			// key is something like array('id' => n) and
+			// offset is just n
+			// —greut
+			//$keySet = $offset == $key || (!$key && in_array($offset, $this->_index));
+			$keySet = in_array($offset, $this->_index);
 			if (!is_null($offset) && $keySet) {
 				return $record;
 			}
