@@ -4,34 +4,48 @@ namespace lithium\tests\integration\data;
 
 use lithium\data\Connections;
 use lithium\data\Entity;
+use lithium\data\source\database\adapter\MySql;
 use lithium\tests\mocks\data\MockEmployees;
-use lithium\tests\mocks\data\MockCompany;
+use lithium\tests\mocks\data\MockCompanies;
 
 class FieldsTest extends \lithium\test\Integration {
+	public $db;
 
 	public function setUp() {
-		Company::config();
+		$sqlFile = LITHIUM_LIBRARY_PATH . '/lithium/tests/mocks/data/source/database/adapter/mysql_companies.sql';
+		$sqls = file_get_contents($sqlFile);
+		foreach(explode(';', $sqls) as $sql) {
+			if (trim($sql)) {
+				$this->db->read($sql, array('return' => 'resource'));
+			}
+		}
 	}
 
 	public function tearDown() {
-		Company::remove();
+		$this->db->read(
+			'DROP TABLE IF EXISTS `employees`, `companies`;',
+			array('return' => 'resource')
+		);
 	}
 
 	public function skip() {
-		$isAvailable = (
-			Connections::get('test', array('config' => true)) &&
-			Connections::get('test')->isConnected(array('autoConnect' => true))
-		);
-		$this->skipIf(!$isAvailable, "No test connection available");
+		$this->skipIf(!MySql::enabled(), 'MySQL Extension is not loaded');
+
+		$dbConfig = Connections::get('test', array('config' => true));
+		$hasDb = (isset($dbConfig['adapter']) && $dbConfig['adapter'] == 'MySql');
+		$message = 'Test database is either unavailable, or not using a MySQL adapter';
+		$this->skipIf(!$hasDb, $message);
+
+		$this->db = new MySql($dbConfig);
 	}
 
 	public function testSingleField() {
-		$new = Company::create(array('name' => 'Acme, Inc.'));
-		$key = Company::meta('key');
+		$new = MockCompanies::create(array('name' => 'Acme, Inc.'));
+		$key = MockCompanies::meta('key');
 		$new->save();
 		$id = is_object($new->{$key}) ? (string) $new->{$key} : $new->{$key};
 
-		$entity = Company::first($id);
+		$entity = MockCompanies::first($id);
 
 		$this->assertTrue($entity instanceof Entity);
 		$this->skipIf(!$entity instanceof Entity, 'Queried object is not an entity.');
@@ -43,7 +57,7 @@ class FieldsTest extends \lithium\test\Integration {
 		$result = $entity->data();
 		$this->assertEqual($expected, $result);
 
-		$entity = MockCompany::first(array(
+		$entity = MockCompanies::first(array(
 			'conditions' => array($key => $id),
 			'fields' => array($key)
 		));
@@ -55,7 +69,7 @@ class FieldsTest extends \lithium\test\Integration {
 		$result = $entity->data();
 		$this->assertEqual($expected, $result);
 
-		$entity = Company::find('first',array(
+		$entity = MockCompanies::find('first',array(
 			'conditions' => array($key => $id),
 			'fields' => array($key, 'name')
 		));
@@ -66,7 +80,7 @@ class FieldsTest extends \lithium\test\Integration {
 		$result = $entity->save();
 		$this->assertTrue($result);
 
-		$entity = MockCompany::find('first',array(
+		$entity = MockCompanies::find('first',array(
 			'conditions' => array($key => $id),
 			'fields' => array($key, 'name')
 		));
@@ -75,12 +89,12 @@ class FieldsTest extends \lithium\test\Integration {
 	}
 
 	function testFieldsWithJoins() {
-		$new = MockCompany::create(array('name' => 'Acme, Inc.'));
-		$cKey = MockCompany::meta('key');
+		$new = MockCompanies::create(array('name' => 'Acme, Inc.'));
+		$cKey = MockCompanies::meta('key');
 		$result = $new->save();
 		$cId = (string) $new->{$cKey};
 
-		$this->skipIf(!$result, 'Could not save MockCompany');
+		$this->skipIf(!$result, 'Could not save MockCompanies');
 
 		$new = MockEmployees::create(array(
 			'company_id' => $cId,
@@ -91,14 +105,34 @@ class FieldsTest extends \lithium\test\Integration {
 		$this->skipIf(!$result, 'Could not save MockEmployee');
 		$eId = (string) $new->{$eKey};
 
-		$entity = MockCompany::first(array(
-			'with' => 'Employee',
+		$entity = MockEmployees::first(array(
+			'with' => 'Company',
 			'conditions' => array(
-				'MockCompany.id' => $cId
+				'MockEmployees.id' => $eId,
 			),
 			'fields' => array(
-				'MockCompany' => array('id', 'name'),
-				'Employee' => array('id', 'name')
+				'Company' => array('id', 'name'),
+				'MockEmployees' => array('id', 'name')
+			)
+		));
+		$expected = array(
+			'id' => $eId,
+			'name' => 'John Doe',
+			'company' => array(
+				'id' => $cId,
+				'name' => 'Acme, Inc.',
+			),
+		);
+		$this->assertEqual($expected, $entity->data());
+
+		$entity = MockCompanies::first(array(
+			'with' => 'Employees',
+			'conditions' => array(
+				'MockCompanies.id' => $cId
+			),
+			'fields' => array(
+				'MockCompanies' => array('id', 'name'),
+				'Employees' => array('id', 'name'),
 			)
 		));
 		$expected = array(
